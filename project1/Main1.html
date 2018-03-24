@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<title>Project 1</title>
+	<style type="text/css">
+	@font-face{
+	font-family: myFont;
+	src:url(myfont2.ttf);
+
+	}
+	
+	canvas{
+		border:1px solid gray;
+		font-family:myFont;
+	}
+	#audioControls{
+		display:none;
+	}
+	</style>
+	<script src='js/utilities.js'></script>
+	<script src='js/enemy.js'></script>
+	<script src='js/vector2D.js'></script>
+	<script>
+	(function(){
+		"use strict";
+		// CONSTANTS
+		// declare some global variables
+		var canvas, ctx;
+		// a common convention is all caps for constant values
+		var CANVAS_WIDTH = 640, CANVAS_HEIGHT = 480;
+		var BACKGROUND_COLOR = "white";
+		var ATTACK_ANGLE = Math.PI; // angle must be in radians
+		var ATTACK_SPEED = 7;
+		var ATTACK_RADIUS = 50; // sword length
+		var PLAYER_SPEED = 100;
+		var PLAYER_HEALTH = 100;
+		var PLAYER_SIZE = 10;
+		var PLAYER_COLOR = "black";
+		var PLAYER_COLOR_SPECIAL = "yellow";
+		var PLAYER_STAMINA = 100;
+		var PLAYER_STATE_NORMAL = 1;
+		var PLAYER_STATE_ATTACK = 2;
+		var PLAYER_STATE_SPECIAL = 3;
+		var PLAYER_STATE_DEAD = 4;
+		
+		var GAME_STATE_START = 1;
+		var GAME_STATE_PLAY = 2;
+		var GAME_STATE_END = 3;
+		var GAME_STATE_HIGH_SCORES = 4;
+		var gameState = GAME_STATE_START;
+		
+		var enemies = [];
+		//counters
+		var minComboScore = 3;
+		var swordWidth = 3;
+		var fullSpecial = 6;
+		var totalScore = 0;
+		var specialCounter = 0;
+		var bossCounter = 0;
+		//first enemy on the screen
+		//used for tutorial purposes
+	
+		
+		//counter to switch from tutorial to play
+		var tutorialOver = 0;
+	
+		var swing;
+		//var swing;
+		//holds the number of enemies hit for point combos
+		var scoreCounter = 0;
+		//number of enemies hit for health combos
+		var healthCounter = 0;
+		//number of enemies hit for speed combos
+		var speedCounter = 0;
+		//number to increase how many enemies spawn. increases over time
+		var difficulty = 0;
+		//vector to be placed inside of an obstacle 
+		var obVect;
+		var obVect2;
+		var obVect3;
+		var obVect4;
+		
+		var alpha = 1;
+		var a = 0;
+		//global for boss buffs
+		var buff = 0;
+		
+		
+		var pickUpSoundEffect = new Audio('media/pickUpSound2.wav');
+		
+		
+		var paused = false;
+		var attackCoordX,attackCoordY;
+		var attackAngleStart,attackAngleEnd;
+		var Keys = {
+			up:false,
+			down:false,
+			left:false,
+			right:false
+		};
+		var animationID;
+		var lastTime = 0;
+		var p = {};
+		var f = {};
+		var hs = [0,0,0,0,0,0,0,0,0,0];
+		var newScores;
+		var specialEnemies = [];
+		var playerHealth = 10;
+		var dt; // delta time
+		var mouse = {}; // make an object
+		//var dt = calculateDeltaTime();
+		window.onload = init;
+	
+		function init(){
+			console.log("init called");
+			makeTutorial();
+			 var backgroundSoundEffect = new Audio('media/backgroundSound2.mp3');
+			backgroundSoundEffect.volume = .06;
+			backgroundSoundEffect.play();
+			backgroundSoundEffect.loop = true;
+			
+			canvas = document.querySelector("canvas");
+			ctx = canvas.getContext("2d");
+			
+			window.onblur = function(){
+				paused = true;
+				Keys.up = false;
+				Keys.down = false;
+				Keys.right = false;
+				Keys.left = false;
+				cancelAnimationFrame(animationID);
+				// call update() once so that our paused screen gets drawn			
+				update();
+			};
+			window.onfocus = function(){
+				cancelAnimationFrame(animationID);
+				paused = false;
+				update();
+			}
+			
+			window.setInterval(function(){makeEnemies(difficulty)},5000);
+			
+			
+			
+			window.onkeydown = function(e){
+				var k = e.keyCode;
+				e.preventDefault();
+				if(k === 65) Keys.left = true;
+				else if(k === 83) Keys.up = true;
+				else if(k === 68) Keys.right = true;
+				else if(k === 87) Keys.down = true;
+			};
+			window.onkeyup = function(e){
+				var k = e.keyCode;
+				e.preventDefault();
+				if(k === 65) Keys.left = false;
+				else if(k === 83) Keys.up = false;
+				else if(k === 68) Keys.right = false;
+				else if(k === 87) Keys.down = false;
+			};
+			window.addEventListener("keydown", changeGameState, false);
+			window.onmousemove = updateMouse;
+			window.onmousedown = startAttack;
+		
+			makePlayer();
+			
+	
+			update();
+		}
+		function reset(){
+			gameState = GAME_STATE_START;
+			difficulty = 0;
+			totalScore = 0;
+			specialCounter = 0;
+			scoreCounter = 0;
+			speedCounter = 0;
+			PLAYER_SPEED = 100;
+			ATTACK_RADIUS = 50;
+			p.state = PLAYER_STATE_NORMAL;
+			p.health = PLAYER_HEALTH;
+			p.stamina = PLAYER_STAMINA;
+			p.x = CANVAS_WIDTH/2;
+			p.y = CANVAS_HEIGHT/2;
+			//healthCounter = 0;
+			enemies = [];
+			makeTutorial();
+			
+		
+		}
+		
+		
+		function changeGameState(e){
+			if(e.keyCode == "13"){
+				
+				 if(gameState == GAME_STATE_END){
+					gameState = GAME_STATE_HIGH_SCORES;
+					storeScores(totalScore);
+				}
+				else if(gameState == GAME_STATE_HIGH_SCORES){
+					reset();
+					gameState = GAME_STATE_START;
+				}
+			}
+		}
+		// update() will soon be called 60 times a second
+		function update(){
+			//console.log(gameState);
+			// CALCULATE delta time
+			
+			
+			dt = calculateDeltaTime();
+			if(buff <= 0 || bossCounter <= 0 || a <= 0){
+			buff = 0;
+			bossCounter = 0;
+			a = 0;
+			
+			}
+			buff -= .01;
+			bossCounter -=2;
+			a -= .01;
+		
+			
+			animationID = requestAnimationFrame(update);
+			// REFRESH BACKGROUND
+			ctx.fillStyle = BACKGROUND_COLOR;
+			ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+			
+			drawObstacles();
+			
+			if(gameState == GAME_STATE_START){
+				// PAUSED?
+				if(paused){
+					drawPauseScreen();
+					return;
+				}
+				
+				// DRAW	
+				drawPlayer();
+				drawAttack();
+				
+				// MOVE
+				p.move(dt);
+				p.attack(dt);
+				
+				updateEnemies();
+				comboFeedback();
+				
+			
+				
+				if(tutorialOver == 9){
+				gameState = GAME_STATE_PLAY;
+				
+				}
+				
+				
+				checkPlayerEnemyCollisions();
+				
+			
+				
+				
+
+			}
+			if(gameState == GAME_STATE_PLAY){
+			
+			drawText("Good job, now play!!", CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 16, "rgba(255,153,0,"+alpha+")");
+			alpha -= .005;
+				// PAUSED?
+				if(paused){
+					drawPauseScreen();
+					return;
+				}
+				//console.log(p.health);
+				//counter to adjust difficulty 
+				difficulty += .003;
+				
+				
+				// DRAW & UPDATE	
+				drawPlayer();
+				drawAttack();
+				updateEnemies();
+				
+				//checkObstacles(300,300,100,50);
+				
+				// MOVE
+				p.move(dt);
+				p.attack(dt);
+				
+				// CHECK COLLISIONS
+				checkPlayerEnemyCollisions();
+				checkEnemyEnemyCollisions();
+				
+				comboFeedback();
+				// SPEED CHECK
+				modSpeed();
+
+				 
+			}
+			drawHUD();
+			
+			
+
+			
+			
+			
+		}
+		
+		// Enemy functions **************************************
+			function makeEnemies(limit){
+				
+				for(var i = 0; i<limit; i++){
+				//randomly picks the color of the spawning circle
+				var picker = getRandom(1,51);
+				var color;
+				if( picker <= 38)
+				{
+					color = "red";
+				}
+				 else if( picker >= 38 && picker <= 45)
+				{
+					color = "blue";
+				}
+				else if( picker >= 45 && picker <= 49)
+				{
+				color = "green";
+				}
+				else{
+				color = "purple"
+				}
+				var direction = getRandom(0,2);
+				if(direction == 0){
+				var xPos = getNum(0,640);
+				var yPos = getRandom(0,460);
+				}
+				else if(direction == 1){
+					xPos = getRandom(0,640);
+					yPos = getNum(0,460);
+				}
+					var enemy = new Enemy(xPos,yPos,10,color);
+					enemies.push(enemy);
+				}
+			limit += 1;
+			}
+			//creates tutorial enemies 
+			function makeTutorial(){
+		var enemy = new Enemy(220,100,10,"red");
+		var enemy2 = new Enemy(250,110,10,"red");
+		var enemy3 = new Enemy(220,120,10,"red");
+		var enemy4 = new Enemy(410,110,10,"blue");
+		var enemy5 = new Enemy(350,1100,10,"blue");
+		var enemy6 = new Enemy(400,115,10,"blue");
+		var enemy7 = new Enemy(300,120,10,"green");
+		var enemy8 = new Enemy(285,120,10,"green");
+		var enemy9 = new Enemy(300,110,10,"green");
+		var enemy10 = new Enemy(500,100,15,"purple");
+		
+		enemies.push(enemy);
+		enemies.push(enemy2);
+		enemies.push(enemy3);
+		enemies.push(enemy4);
+		enemies.push(enemy5);
+		enemies.push(enemy6);
+		enemies.push(enemy7);
+		enemies.push(enemy8);
+		enemies.push(enemy9);
+		enemies.push(enemy10);
+			
+			
+			}
+			
+			
+			function updateEnemies(){
+			var vec = new Vector2D(p.x,p.y);
+				for(var i = 0; i<enemies.length; i++){
+				if(enemies[i].enemyState == "alive" || enemies[i].enemyState == "special"){
+				
+					enemies[i].draw(ctx);
+					if( gameState == GAME_STATE_PLAY){
+					enemies[i].seek(vec);
+					enemies[i].move();
+					}
+					
+					enemies[i].checkBounds(enemies[i],(CANVAS_WIDTH/2)-75,80,150,20);
+					enemies[i].checkBounds(enemies[i],(CANVAS_WIDTH/2)-75,CANVAS_HEIGHT-80,150,20);
+					enemies[i].checkBounds(enemies[i],100,CANVAS_HEIGHT/2-50,20,100);
+					enemies[i].checkBounds(enemies[i],CANVAS_WIDTH-100,CANVAS_HEIGHT/2-50,20,100);
+					
+					}
+				}
+			}
+			
+		
+			//calculates combos 
+			function calculateCombos (x,y){
+				//totalScore += scoreCounter * scoreCounter; 
+				
+				
+				//console.log(scoreCounter);
+				var score
+				var comboMultiplier = 1;
+				if(scoreCounter >= minComboScore){
+					
+					if(scoreCounter >= 3 && scoreCounter < 5){
+						comboMultiplier = 2;
+						specialCounter += 1;
+					}
+					if(scoreCounter >= 5 && scoreCounter < 10){
+						comboMultiplier = 3;
+						specialCounter += 2;
+					}
+					if(scoreCounter >= 10){
+						comboMultiplier = 4;
+						specialCounter += 3;
+					}
+					
+						// feedback information for combos is stored here
+							f.x = x;
+							f.y = y;
+							f.scoreCounter = scoreCounter;
+							f.score = (scoreCounter*comboMultiplier);
+							f.combo = true;
+							f.scoreAlpha = 1;
+					
+				}
+				if(healthCounter > 0){
+					f.showHealthCounter = true;
+					f.healthAlpha = 1;
+					f.healthIncrease = Math.ceil(healthCounter * (healthCounter - 1));
+				}
+				if(speedCounter > 0){
+					f.showSpeedCounter = true;
+					f.speedAlpha = 1;
+					f.speedIncrease = speedCounter;
+					f.x = x;
+					f.y = y;
+				}
+				p.health += Math.ceil(healthCounter * (healthCounter -= 1));
+				if(p.health >= 120){
+					p.health = 120;
+				
+				}
+				p.speed += speedCounter * 25;
+				totalScore += (scoreCounter*comboMultiplier);
+				
+			}
+			
+			function checkEnemyEnemyCollisions(){
+				for(var i =0; i<enemies.length; i++){
+					var e = enemies[i];
+					if(e.enemyState == "alive"){
+						for(var j = 0; j<specialEnemies.length;j++){
+							var s = specialEnemies[j];
+					
+							if(circlesIntersect(e,s)){
+							if(e.color == "red" && e.enemyState == "alive"){
+										
+							scoreCounter += 1;
+						
+							calculateCombos(e.location.x,e.location.y);
+
+							}
+							//remove instance from array!! its fucking up calculations 
+							//try array.filter
+							else if( e.color == "blue" && e.enemyState == "alive"){
+								healthCounter += 1;
+
+								calculateCombos(e.location.x,e.location.y);
+
+							}
+							
+							else if(e.color == "green" && e.enemyState == "alive"){
+								speedCounter += 1;
+								
+								calculateCombos(e.location.x,e.location.y);
+
+							}
+							//**************************IMPORTANT*******************************************
+							//This needs work. Make it work properly
+							else if(e.color == "purple" && e.enemyState == "alive"){
+								bossCounter += 100;
+							a += 1;
+							var buffPicker = getRandom(1,21);
+				
+						if( buffPicker <= 10)
+						{
+							buff += 1;
+							p.health += 20
+							
+							
+						}
+						else if( buffPicker >= 10 && buffPicker <= 15)
+						{
+							ATTACK_RADIUS += 4;
+							buff += 2;
+							
+							
+						}
+						else if(buffPicker >= 15 && buffPicker <= 20) 
+						{
+							PLAYER_SPEED += 10;
+							buff += 3;
+							
+						}
+							
+							
+							}
+								if(e.color != "purple"){
+								e.enemyState = "dead";
+								}
+							}
+						}
+					}
+				}
+			}
+			//function to increase difficulty
+		/*	function difficultyIncrease(num){
+			num = num += .25
+			return num;
+			}*/
+		//********************************************************
+		
+		// creates the player object
+		function makePlayer(){
+			p.x = CANVAS_WIDTH/2;
+			p.y = CANVAS_HEIGHT/2 - 65;
+			p.speed = PLAYER_SPEED;
+			p.state = PLAYER_STATE_NORMAL;
+			p.radius = PLAYER_SIZE;
+			p.fillStyle = PLAYER_COLOR;
+			p.move = _playerMove;
+			p.attack = _playerAttack;
+			p.stamina = PLAYER_STAMINA;
+			p.health = PLAYER_HEALTH;
+		}
+		
+		// draws the player
+		function drawPlayer(){
+			ctx.beginPath();
+			ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2, false);
+			ctx.closePath();
+			if(p.state == PLAYER_STATE_SPECIAL){
+				ctx.lineWidth = 1;
+				ctx.fillStyle = PLAYER_COLOR_SPECIAL;
+				ctx.strokeStyle = "orange";
+				ctx.stroke();
+			}else{
+				ctx.fillStyle = p.fillStyle;
+			}
+			ctx.fill();		
+		}
+		
+		function drawObstacles(){
+			ctx.save();
+			ctx.fillStyle = "black"; 
+			// Obstacle 1
+			ctx.fillRect((CANVAS_WIDTH/2)-75,80,150,20);
+			checkObstacles((CANVAS_WIDTH/2)-75,80,150,20);
+			// Obstacle 2
+			ctx.fillRect((CANVAS_WIDTH/2)-75,CANVAS_HEIGHT-80,150,20);
+			checkObstacles((CANVAS_WIDTH/2)-75,CANVAS_HEIGHT-80,150,20);
+			// Obstacle 3
+			ctx.fillRect(100,CANVAS_HEIGHT/2-50,20,100);
+			checkObstacles(100,CANVAS_HEIGHT/2-50,20,100);
+			// Obstacle 4
+			ctx.fillRect(CANVAS_WIDTH-100,CANVAS_HEIGHT/2-50,20,100);
+			checkObstacles(CANVAS_WIDTH-100,CANVAS_HEIGHT/2-50,20,100);
+			ctx.restore();
+		}
+			function checkObstacles(x,y,w,h){
+			// r,b,l,t: right, bottom, left, top.
+			// calculates the correct boundary for each side and stores it as a var.
+				var r = x+w+p.radius-3;
+				var b = y+h+p.radius-3;
+				var l = x-p.radius+3;
+				var t = y-p.radius+3;
+
+				if(p.x >= l && p.x <= r && p.y >= t && p.y <= b){
+					if(p.x >= l && p.x <= l+4) p.x = l-1;
+					else if(p.x <= r && p.x >= r-4) p.x = r+1;
+					else if(p.y >= t && p.y <= t+4) p.y = t-1;
+					else if(p.y <= b && p.y >= b-4) p.y = b+1;
+			
+			
+					//console.log("collision detected");
+		
+				}
+		}
+		
+		// draws the sword
+		function drawAttack(){
+			if(p.state == PLAYER_STATE_ATTACK || p.state == PLAYER_STATE_SPECIAL){
+				if(p.state == PLAYER_STATE_SPECIAL){
+					ctx.strokeStyle = "orange";
+					ctx.lineWidth = swordWidth + 4;
+				}else{
+					ctx.lineWidth = swordWidth;
+					ctx.strokeStyle = "black";
+				}
+				ctx.beginPath();
+				ctx.moveTo(p.x,p.y);
+				ctx.lineTo(attackCoordX,attackCoordY);
+				ctx.stroke();
+			}
+		}
+		
+		// Tracks the location of the mouse
+		function updateMouse(e){
+				mouse.x = e.pageX - e.target.offsetLeft;
+				mouse.y = e.pageY - e.target.offsetTop;	
+
+					 
+				
+		
+		}
+		
+		// Finds the start and end angles of the players attack based on where the player clicks
+		// The ATTACK_ANGLE is currently set to 3.14 radians
+		function calculateAttack(){
+			var vx1 = Math.round(mouse.x - p.x);
+			var vy1 = Math.round(p.y - mouse.y);
+			var vector1 = [vx1,vy1];
+			var vector2 = [30,0];
+			var startAngle = 0;
+			var endAngle = 0;
+			// dotProd = angle between the two vectors in radians
+			var dotProd = dotProduct(vector1,vector2);
+				// if click is in the 2nd quadrant
+				if(vx1 < 0 && vy1 > 0){
+					startAngle = Math.PI*2 - dotProd;
+				}
+				// if click is in the 1st quadrant
+				else if(vx1 > 0 && vy1 > 0){
+					startAngle = Math.PI*2 - dotProd;
+				}
+				// otherwise mouseX and mouseY are either in the 3rd or 4th quadrant
+				else{
+					startAngle = dotProd;
+				}
+			if(p.state == PLAYER_STATE_ATTACK){
+			endAngle = startAngle-(ATTACK_ANGLE/2);	
+			startAngle = startAngle+(ATTACK_ANGLE/2);
+			}
+			else if(p.state == PLAYER_STATE_SPECIAL){
+			endAngle = startAngle-(ATTACK_ANGLE*3);	
+			startAngle = startAngle+(ATTACK_ANGLE*3);
+			
+			}
+
+			// This is the starting and ending angle of the player's attack
+			// We need this so we can draw the arc of the attack on the canvas
+			attackAngleStart = startAngle;
+			attackAngleEnd = endAngle;
+			
+			attackCoordX = p.x + (ATTACK_RADIUS*Math.cos(attackAngleStart));
+			attackCoordY = p.y + (ATTACK_RADIUS*Math.sin(attackAngleStart));
+			
+			var attack = {};
+			 attack.x = attackCoordX;
+			 attack.y = attackCoordY;
+			
+			return attack;
+			
+			
+
+		}
+		
+		// When the player clicks, startAttack is fired
+		// Sets the player state to PLAYER_STATE_ATTACK
+		function startAttack(){
+			scoreCounter = 0;
+			if(p.state == PLAYER_STATE_NORMAL && p.stamina >= 18){
+				
+				healthCounter = 0;
+				speedCounter = 0;
+				
+				specialEnemies = [];
+				//console.log(speedCounter);
+				if(specialCounter >= fullSpecial){
+					specialCounter = fullSpecial;
+					p.state = PLAYER_STATE_SPECIAL;
+					
+				}
+				else{
+					p.state = PLAYER_STATE_ATTACK;	
+				}
+				calculateAttack();
+			}
+			else{
+				console.log("attack not ready");
+			}
+		}
+		
+		// Moves the player based on which keys they are pressing (WASD)
+		var _playerMove = function(dt){
+			if(Keys.up){
+				this.y += this.speed*dt;
+				this.y = clamp(this.y, 0,460);
+			}
+			else if(Keys.down){
+				this.y -= this.speed*dt;
+				this.y = clamp(this.y, 0,460);
+			}
+			if(Keys.left){
+				this.x -= this.speed*dt;
+				this.x = clamp(this.x, 0,640);
+			}
+			else if(Keys.right){
+				this.x += this.speed*dt;
+				this.x = clamp(this.x, 0,640);
+			}
+		}
+		// Increments the angle of the sword on the attack
+		// Sets the player state to normal when done attacking
+		var _playerAttack = function(dt){		
+			if(p.state == PLAYER_STATE_ATTACK || p.state == PLAYER_STATE_SPECIAL){
+				if(p.state == PLAYER_STATE_SPECIAL){
+					var attackSpeed = 2;
+				}else{
+					var attackSpeed = 1;
+				}
+				// swordCoords stores 3 points on the sword 
+				// we check for collisions with these 3 points at (1/3),(2/3), and (3/3) of the swords magnitude/length
+				var swordCoords = [];
+					for(var i = 1; i<4; i++){
+						var x = p.x + ((ATTACK_RADIUS*(i/3))*Math.cos(attackAngleStart));
+						swordCoords.push(x);
+						var y = p.y + ((ATTACK_RADIUS*(i/3))*Math.sin(attackAngleStart));
+						swordCoords.push(y);
+					}
+				// attackCoordX and attackCoordY are the coordinates at the end of the sword
+				// store these for the drawAttack function
+				attackCoordX = swordCoords[4];
+				attackCoordY = swordCoords[5];
+				
+				
+				
+				checkSwordCollisions(swordCoords[0],swordCoords[1],swordCoords[2],swordCoords[3],swordCoords[4],swordCoords[5]);
+				
+				p.stamina -= 1.5;
+				
+				attackAngleStart -= (ATTACK_SPEED*attackSpeed)*dt;
+				if(attackAngleStart <= attackAngleEnd){
+					if(p.state == PLAYER_STATE_SPECIAL) specialCounter = 0;
+					p.state = PLAYER_STATE_NORMAL;
+					calculateCombos(p.x,p.y);
+				}
+			}
+		}
+		//***********work on this****************
+		//checks for collisions and additionally sets up calculations for combos
+		function checkSwordCollisions(x1,y1,x2,y2,x3,y3){
+			for(var i = 0;i < enemies.length; i++){
+				var e = enemies[i];
+			if(pointInsideCircle(x1,y1,e) || pointInsideCircle(x2,y2,e) || pointInsideCircle(x3,y3,e)){
+				
+				if(e.enemyState == "alive"){	
+					//
+					//deadEnemies.push(e);
+					pickUpSoundEffect.volume = .08;
+					pickUpSoundEffect.play();
+					
+					if(e.color == "red"){
+								
+					scoreCounter += 1;
+					e.health -= 1;
+					//calculateCombos();
+					
+					
+					
+					
+					}
+					//remove instance from array!! its fucking up calculations 
+					//try array.filter
+					else if( e.color == "blue"){
+						healthCounter += 1;
+						
+						scoreCounter += 1.5;
+						e.health -= 1;
+						//calculateCombos();
+						
+						
+					
+					}
+					
+					else if(e.color == "green"){
+						
+						scoreCounter += 2;
+						speedCounter += 1;
+						e.health -= 1;
+						//calculateCombos();
+						
+					
+					}
+					
+					else if(e.color == "purple"){
+						e.health -= 1;
+							 
+						 
+					
+					}
+					
+					if(p.state == PLAYER_STATE_SPECIAL){
+					//so setting the special attack to only work on alive enemies makes it work properly
+					//however making it so that it works on ALL enemies, both those alive and those that are still on screen but dead, looks way cooler
+					if(e.enemyState == "alive" && e.color != "purple"){
+						e.enemyState = "special";
+						specialEnemies.push(e);
+						e.maxSpeed = -10;
+						}
+						
+						else if(e.enemyState == "alive" && e.color == "purple"){
+						e.health -= 1;
+						console.log("purple hit");
+						}
+						}
+							
+						
+					else if(e.health <= 0){
+						e.enemyState = "dead";
+						tutorialOver  += 1;
+						if(e.color == "purple"){
+						console.log("buffs started");
+						bossCounter += 100;
+						a += 1;
+							var buffPicker = getRandom(1,21);
+				
+						if( buffPicker <= 10)
+						{
+							buff += 1;
+							p.health += 20
+							console.log("buffed");
+							
+							
+						}
+						else if( buffPicker >= 10 && buffPicker <= 15)
+						{
+							ATTACK_RADIUS += 4;
+							buff += 2;
+							console.log("buffed1");
+							
+							
+						}
+						else if(buffPicker >= 15 && buffPicker <= 20) 
+						{
+							PLAYER_SPEED += 20;
+							buff += 3;
+							console.log("buffed2");
+							
+						}
+						
+						
+						}
+					}
+				}
+			}
+		}
+			
+	}
+		
+
+		
+		function checkPlayerEnemyCollisions(){
+			for( var i = enemies.length - 1; i >=0; i--){
+				var e = enemies[i];
+				if(e.enemyState == "alive"){
+				
+					if( circlesIntersect2(e,p)){
+							var color = e.color;
+							var damage;
+							if(color == "blue") damage = 15;
+							if(color == "red") damage = 8;
+							if(color == "green") damage = 10;
+							if(color == "purple") damage = 25;
+							p.health -= damage;
+							e.enemyState = "dead";
+							tutorialOver += 1;
+					}
+				}
+				//clear on a per swing basis	
+			}
+		}
+		
+		function drawStaminaBar(){
+			if(p.stamina >= PLAYER_STAMINA){
+				p.stamina = PLAYER_STAMINA;
+			}
+			else if(p.stamina < 0){
+				p.stamina = 0;
+			}
+			else{
+				p.stamina += .25;
+			}
+
+			ctx.fillStyle = "red";
+			ctx.fillRect(20,10,PLAYER_STAMINA,15);
+			
+			ctx.fillStyle = "green";
+			
+			ctx.fillRect(20,10,p.stamina,15);
+
+
+			
+		}
+		function drawSpecialBar(){
+			var inc = 100/fullSpecial;
+			var meter = specialCounter*inc;
+			ctx.fillStyle = "black";
+			ctx.fillRect(20,30,100,15);
+			ctx.fillStyle = "orange";
+			if(meter >= 100) meter = 100;
+			ctx.fillRect(20,30,meter,15);
+			
+		}
+		
+		function drawHealthBar(x,y,width,maxHP){
+			ctx.lineWidth = 1;
+			ctx.strokeStyle="gray";
+			ctx.strokeRect(x,y,width,35);
+			
+			if(p.health <= 0){
+				p.health = 0;
+				p.state = PLAYER_STATE_DEAD;
+				gameState = GAME_STATE_END;
+				p.health += 1;
+			}
+			var health = (p.health*width)/maxHP;
+			ctx.fillStyle = "red";
+			ctx.fillRect(x,y,health,35);
+			
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			drawText(p.health+"%",x+(width/2),y+(35/2),20,"gray");
+				
+		}
+		/*
+		function circleHitLeftRight(x, y, radius){
+			if(x < radius || x > CANVAS_WIDTH - radius) return true;
+		}
+		function circleHitTopBottom(x, y, radius){
+			if(y < radius || y > CANVAS_HEIGHT - radius) return true;
+		}
+		*/
+		function comboFeedback(){
+			if(f.combo == true){
+				var count = f.scoreCounter;
+				var score = f.score;
+				var x = f.x;
+				var y = f.y;
+				
+				// Move and fade text until it disappears
+				if(f.scoreAlpha <= .02){
+					f.combo = false
+				}else{
+					f.scoreAlpha -= .01;
+					f.y -= 1;
+				}
+				
+				var text;
+				if(count >= 3 && count < 5) text = "Combo + "+score+"pts";
+				if(count >= 5 && count < 10) text = "Super-Combo + "+score+"pts";
+				if(count >= 10) text = "Mega-Combo + "+score+"pts";
+				drawText(text,x,y,30, "rgba(255,153,0,"+f.scoreAlpha+")");
+			}
+			if(f.showHealthCounter == true){
+			
+				var h = f.healthIncrease;
+			
+
+				if(f.healthAlpha <= .02){
+					f.showHealthCounter = false
+				}else{
+					f.healthAlpha -= .01;
+				}
+				
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				
+				drawText("Health +"+h,350,60,25, "rgba(255,0,0,"+f.healthAlpha+")");
+				
+			}
+			if(f.showSpeedCounter == true){
+				var s = f.speedIncrease
+				var x = f.x;
+				var y = f.y+10;
+				
+				if(f.speedAlpha <= .02){
+					f.showSpeedCounter = false
+				}else{
+					f.speedAlpha -= .01;
+					f.y -= 1;
+				}
+				
+			
+				drawText("Speed boost",x+30,y,30, "rgba(0,0,255,"+f.speedAlpha+")");
+			}
+			
+			if(bossCounter >= 0){
+				
+				
+				
+				
+				if( buff >= 0 && buff <= 1){
+				
+				drawText("HP +"+ 20,350,60,25, "rgba(255,0,0,"+a+")");
+			
+				
+				}
+				 else if( buff >= 1 && buff <=  2){
+			
+				drawText("Attack range +",350,60,25, "rgba(255,0,0,"+a+")");
+				
+				
+				}
+				
+				else if( buff >= 2 && buff <= 3){
+				
+				drawText("Speed +",200,50,30, "rgba(255,153,0,"+a+")");
+				
+				
+				}
+			
+				//bossCounter = 0;
+				//buff = 0;
+			}
+			
+		}
+		function modSpeed(){
+			p.speed -= .5;
+			if(p.speed <= 100){
+				p.speed = 100;
+			}
+			if(p.speed >= 300){
+			p.speed = 300;
+			
+			}
+			
+			//if( playerHealth >= 20){
+			//	playerHealth = 20;
+			
+			//}
+		}
+		
+		function storeScores(s){
+			// grab the array of scores from localStorage and store them in an scores array
+			var scores = JSON.parse(localStorage.getItem("scores"));
+			// if scores haven't been stored yet, set all highscores to zero
+			if(scores === null || scores === undefined) scores = hs;		
+				// add latest score to the scores array
+				scores.push(s);
+				// clear the localStorage
+				localStorage.clear();
+				// sort the scores array by descending numerical value
+				scores.sort(function(a,b){return b-a});
+				// delete the 11th score in the array
+				scores.splice(10,1);
+			// the scores are now updated and set back in localStorage
+			newScores = scores;
+			localStorage.setItem("scores",JSON.stringify(newScores));
+			//console.log(newScores);
+		}
+		
+		function drawHUD(){
+			if(gameState != GAME_STATE_END || gameState != GAME_STATE_HIGH_SCORES){
+				// PLAYER HUD
+				drawSpecialBar();
+				drawStaminaBar();
+				drawText("HP", 170,27,40,"gray");
+				drawHealthBar(200,10,300,PLAYER_HEALTH);
+			
+			}
+			if(gameState == GAME_STATE_START){	
+				ctx.save();
+				// TEXT
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				drawText("WASD to move", CANVAS_WIDTH/2, CANVAS_HEIGHT/2 +40, 34, "red");
+				drawText("Click to attack", CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 90, 34, "red");
+				drawText("Kill circles for combos", CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 140, 34, "red");
+				drawText(Math.floor(totalScore), 570, 30, 40, "gray");
+				ctx.restore();
+			}
+			if(gameState == GAME_STATE_PLAY){		
+				drawSpecialBar();
+				drawStaminaBar();
+				drawText("HP", 170,27,40,"gray");
+				drawHealthBar(200,10,300,PLAYER_HEALTH);
+			
+				//draws score 
+				drawText(Math.floor(totalScore), 570, 30, 40, "gray");
+				//= instead of - for trippy effect
+				//draws health
+				//drawText("Health:" + playerHealth, CANVAS_WIDTH - 300, 20, 16, "#ddd"); 
+				//speed of the player 
+				//drawText("Speed:" + p.speed + "%", CANVAS_WIDTH - 400, 20, 16, "#ddd");
+			}
+			if(gameState == GAME_STATE_END){
+				ctx.save();
+				ctx.fillStyle = "black";
+				ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				drawText("GAME OVER",CANVAS_WIDTH/2, CANVAS_HEIGHT/2-60, 60, "white");
+				drawText("(Press 'Enter' to continue)",CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 20, "white");
+				ctx.restore();
+			}
+			if(gameState == GAME_STATE_HIGH_SCORES){
+				
+				ctx.save();
+				ctx.fillStyle = "black";
+				ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				drawText("HIGH SCORES",CANVAS_WIDTH/2, 50, 40, "white");
+					for(var i = 0; i<10; i++){
+						var s = i+1;
+						drawText(s+") "+newScores[i],CANVAS_WIDTH/2, 90+(i*35), 22, "white");
+					}
+				drawText("(Press 'Enter' to continue)",CANVAS_WIDTH/2, CANVAS_HEIGHT-35, 20, "white");
+				ctx.restore();
+				
+			}
+			
+		}
+		
+		// Functions stolen from Boomshine *************************************** 
+		function drawText(string, x, y, size, color){
+			ctx.font = 'bold '+size+'px myFont';
+			ctx.fillStyle = color;
+			ctx.fillText(string, x, y);
+		}
+		
+		function calculateDeltaTime(){
+		// what's with the (+ new Date) below?
+		// + calls Date.valueOf(), which converts it from an object to a 
+		// primitive (number of miliseconds since January 1, 1970 local time)
+			var now,fps;
+			now = (+new Date);
+			fps = 1000/(now-lastTime);
+			fps = clamp(fps, 12,60);
+			lastTime = now; //lastTime is a global
+			return 1/fps;
+		}
+		
+		function drawPauseScreen(){
+			ctx.save();
+			ctx.fillStyle = "black";
+			ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			drawText("... PAUSED ...",CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 60, "white");
+			ctx.restore();
+		}
+		
+	}())
+	</script>
+</head>
+<body>
+	<canvas width="640" height="480"></canvas>
+	<section id="audioControls">
+
+	</section>
+</body>
+</html>
